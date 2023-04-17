@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  
+  <!-- root node a set of modifications ("modifs" elements) is made of
+       a sequence of "modif" nodes. The following attributs are
+       defined:
+       - language:
+       - wp_dump_date:
+       - wp_first_page_id:
+       - wp_last_page_id:
+  -->
+  <xs:element name="modifs">
+    <xs:complexType>
+      <xs:sequence>
+	<xs:element name="modif" maxOccurs="unbounded" type="modifType"/>
+      </xs:sequence>
+      <xs:attribute name="language" type="langType"/>
+      <xs:attribute name="wp_dump_date" type="xs:date"/>
+      <xs:attribute name="wp_first_page_id" type="xs:integer"/>
+      <xs:attribute name="wp_last_page_id" type="xs:integer"/>
+    </xs:complexType>
+  
+    <!-- Constraint to ensure that the id of "modif" elements are unique -->
+    <xs:unique name="idMustBeUnique">
+      <xs:selector xpath="modif"/>
+      <xs:field xpath="@id"/>
+    </xs:unique>
+  </xs:element>
+  
+  <!-- Type defining one modification. The "after" and "before"
+       elements contains XXX. Within these elements the "m" tag identify the
+       word that has been changed.
+
+       Attributes allow to link the modification to the wikipedia
+       page. In wikipedia each page has by two ids: the 
+       first one (wp_page_id) identify the page (ie. the "topic"); the
+       second one the revision of this page (wp_before_rev_id).
+
+       We also prodives the comment associated to this revision
+       (wp_comment) and the id of the user that made the modification.
+
+       XXX Misses:
+       - wp_before_after_rev_id
+       - wp_user_num_modif
+       - id for anonymous contributor 
+  -->
+  <xs:complexType name="modifType">
+    <xs:sequence>
+      <xs:element name="before" type="contentType"/>
+      <xs:element name="after" type="contentType"/>
+    </xs:sequence>
+    <xs:attribute name="id" type="xs:integer"/>
+    <xs:attribute name="wp_page_id" type="xs:integer"/>
+    <xs:attribute name="wp_before_rev_id" type="xs:integer"/>
+    <xs:attribute name="wp_after_rev_id" type="xs:integer"/>
+    <xs:attribute name="wp_user_id" type="xs:integer"/>
+    <xs:attribute name="wp_user_num_modif" type="xs:integer"/>
+    <xs:attribute name="wp_comment" type="xs:string"/>
+ </xs:complexType>
+
+  <!--
+     The set of possible language
+    -->
+  <xs:simpleType name="langType">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="fr"/>
+   </xs:restriction>
+  </xs:simpleType>
+
+  <!--- The content of "before" and "after" is free text with exactly
+     one "m" element in it that highlights the word that has been
+     changed.  
+    -->
+  <xs:complexType name="contentType" mixed="true">
+    <xs:sequence>
+      <xs:element name="m" minOccurs="1" maxOccurs="1" type="xs:string"/>
+    </xs:sequence>
+  </xs:complexType>
+  
+</xs:schema>
