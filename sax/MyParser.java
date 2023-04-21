@@ -3,12 +3,12 @@ package sax;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.ListIterator;
 
 import javax.xml.parsers.SAXParser;
 import javax.xml.parsers.SAXParserFactory;
 
 import org.xml.sax.XMLReader;
-
 
 public class MyParser {
     
@@ -16,7 +16,7 @@ public class MyParser {
         String usage = """
         usage: MyParser [options] [parameters] <file-path>
         parameters:
-            --error-type: string, type of errors (default: any)
+            --error-type: string, type of errors: non_word_error, real_word_error, any (default: any)
             --min-user-count: number, minimal contributions for users (default: -1)
             --questions-count: number, how many question to extract from file (default: -1)
         options: 
@@ -41,10 +41,6 @@ public class MyParser {
             FLAG_NO_ANON,
             VALUE,
             UNKNOWN
-        }
-
-        public String getValue() {
-            return value;
         }
     }
 
@@ -119,57 +115,64 @@ public class MyParser {
         }
     }
 
-    private static Node buildSemanticTree(ArrayList<Token> tokens, Node root) {
+    private static Node buildSemanticTree(Node root, ListIterator<Token> it) throws Exception {
         if(root == null) {
                 root = new Node(Node.Type.ARGUMENTS , null);
         }
-        for (int i = 0; i < tokens.size(); i++) {
-            Token token = tokens.get(i);
-            switch (token.type) {
-                case FLAG_ERROR_TYPE:
-                case FLAG_MIN_USER_COUNT:
-                case FLAG_QUESTION_COUNT: 
-                    if (root.type == Node.Type.ARGUMENTS) {
-                        Node parametersListNode = new Node(Node.Type.PARAMETERS_LIST, null);
-                        parametersListNode.children.add(buildSemanticTree(tokens, parametersListNode));
-                    } else if (root.type == Node.Type.PARAMETERS_LIST) {
-                        Node optionNode = new Node(Node.Type.VALUED_OPTION_FLAG, token);
-                        tokens.remove(0);
-                        optionNode.children.add(
-                            buildSemanticTree(tokens, optionNode)
-                        );
-                    } else {
-                        throw new Error("Can't have option flag here: " + token.value);
+        if (it.hasNext()) {
+            switch (root.type) {
+                case ARGUMENTS: {
+                    Node parameters = new Node(Node.Type.PARAMETERS_LIST, null);
+                    while (it.next().type != Token.Type.VALUE) {
+                        it.previous();
+                        parameters = buildSemanticTree(parameters, it);
+                    }
+                    it.previous();
+                    root.children.add(parameters);
+                    Node positional = new Node(Node.Type.POSITIONAL, it.next());
+                    root.children.add(positional);
+                    break;
+                }
+                case PARAMETERS_LIST: {
+                    Token token = it.next();
+                    switch (token.type) {
+                        case FLAG_ERROR_TYPE:
+                        case FLAG_MIN_USER_COUNT:
+                        case FLAG_QUESTION_COUNT: {
+                            Node valueFlag = new Node(Node.Type.VALUED_OPTION_FLAG, token);
+                            root.children.add(valueFlag);
+                            valueFlag = buildSemanticTree(valueFlag, it);
+                            break;
+                        }
+                        case FLAG_NO_ANON: {
+                            Node flag = new Node(Node.Type.BOOLEAN_OPTION_FLAG, token);
+                            root.children.add(flag);
+                            break;
+                        } 
+                        case VALUE: {
+                            break;
+                        }  
+                        default:
+                            throw new Exception("Invalid token \"" + token.value + "\" of type : " + token.type.name());
                     }
                     break;
-                case FLAG_NO_ANON:
-                    if (root.type == Node.Type.ARGUMENTS) {
-                        Node parametersListNode = new Node(Node.Type.PARAMETERS_LIST, null);
-                        parametersListNode.children.add(buildSemanticTree(tokens, parametersListNode));
-                        root.children.add(parametersListNode);
-                    } else if (root.type == Node.Type.PARAMETERS_LIST) {
-                        Node flagNode = new Node(Node.Type.BOOLEAN_OPTION_FLAG, token);
-                        tokens.remove(0);
-                        root.children.add(flagNode);
-                    } else {
-                        throw new Error("Can't have option flag here: " + token.value);
+                }
+                case VALUED_OPTION_FLAG: {
+                    Token token = it.next();
+                    switch (token.type) {
+                        case VALUE: 
+                        {
+                            Node node = new Node(Node.Type.VALUED_OPTION_VALUE, token);
+                            root.children.add(node);
+                            break;
+                        }
+                        default:
+                            throw new Exception("Unknown option value \"" + token.value + "\" of type : " + token.type.name());
                     }
                     break;
-                case VALUE:
-                    if (root.type == Node.Type.VALUED_OPTION_FLAG) {
-                        Node optionValueNode = new Node(Node.Type.VALUED_OPTION_VALUE, token);
-                        tokens.remove(0);
-                        root.children.add(optionValueNode);
-                    } else if (root.type == Node.Type.ARGUMENTS) {
-                        Node postitionalNode = new Node(Node.Type.POSITIONAL, token);
-                        tokens.remove(0);
-                        root.children.add(postitionalNode);
-                    } else {
-                        throw new Error("Can't have option value here: " + token.value);
-                    }
-                    break;
+                }
                 default:
-                    throw new Error("Unknown token type for: " + token.value);
+                    throw new Exception("Can't build semantic of node of type : " + root.type.name());
             }
         }
         return root;
@@ -183,7 +186,8 @@ public class MyParser {
         String filePath = null;
 
         ArrayList<Token> tokens = getTokens(args);
-        Node tree = buildSemanticTree(tokens, null);
+        ListIterator<Token> it = tokens.listIterator();
+        Node tree = buildSemanticTree(null, it);
         for (int i = 0; i < tree.children.size(); i++) {
             Node node = tree.children.get(i);
             switch (node.type) {
@@ -193,7 +197,10 @@ public class MyParser {
                             case VALUED_OPTION_FLAG:
                                 switch (node2.token.type) {
                                     case FLAG_ERROR_TYPE:
-                                        errorType = Parameters.ErrorTypesValues.get(node2.children.get(0).token.value); 
+                                        errorType = Parameters.ErrorTypesValues.get(node2.children.get(0).token.value);
+                                        if(errorType == null) {
+                                            throw new Exception("Invalid value \""+ node2.children.get(0).token.value +"\" for option error-type");
+                                        }
                                         break;    
                                     case FLAG_MIN_USER_COUNT:
                                         minUserCount =  Integer.decode(node2.children.get(0).token.value);
@@ -213,13 +220,16 @@ public class MyParser {
                                     default:
                                         break;
                                 }
+                                break;
                             default:
                                 break;
                         }
 
                     }
+                    break;
                 case POSITIONAL:
                     filePath = node.token.value;
+                    break;
                 default:
                     break;
             }
@@ -254,7 +264,11 @@ public class MyParser {
             return;
         }
 
-        System.out.println(parameters);
+        System.out.println("error-type: \""+ parameters.errorType +"\"");
+        System.out.println("min-user-count: \""+ parameters.minimalCorrectionCount +"\"");
+        System.out.println("questions-count: \""+ parameters.questionCount +"\"");
+        System.out.println("no-anon \""+ parameters.onlyLoggedUsers +"\"");
+        System.out.println("file-path \""+ parameters.filePath +"\"");
 
         SAXParserFactory spf = SAXParserFactory.newInstance();
         spf.setNamespaceAware(true);

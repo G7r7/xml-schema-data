@@ -24,6 +24,12 @@
             "mainClass": "sax.MyParser",
             "projectName": "xml-schema-data_64e5697e",
             "args": [
+                "--error-type",
+                "real_word_error",
+                "--min-user-count",
+                "3",
+                "--questions-count",
+                "1000",
                 "--no-anon",
                 "spelling_error-v3.xml"
             ]
