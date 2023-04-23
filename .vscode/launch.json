@@ -29,8 +29,8 @@
                 "--min-user-count",
                 "3",
                 "--questions-count",
-                "1000",
-                "--no-anon",
+                "100000",
+                "wrhc-fr_070101-sch1-v2.xml",
                 "spelling_error-v3.xml"
             ]
         }

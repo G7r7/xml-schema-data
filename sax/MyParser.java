@@ -10,11 +10,13 @@ import javax.xml.parsers.SAXParserFactory;
 
 import org.xml.sax.XMLReader;
 
+import sax.MyParser.Parameters.ErrorTypes;
+
 public class MyParser {
     
     private static void usage() {
         String usage = """
-        usage: MyParser [options] [parameters] <file-path>
+        usage: MyParser [options] [parameters] <file-path> <error-file-path>
         parameters:
             --error-type: string, type of errors: non_word_error, real_word_error, any (default: any)
             --min-user-count: number, minimal contributions for users (default: -1)
@@ -58,7 +60,7 @@ public class MyParser {
     }
 
 
-    private static class Parameters {
+    protected static class Parameters {
         public static HashMap<String, Token.Type> validFlags = new HashMap<String, Token.Type>() {{
             put("--error-type", Token.Type.FLAG_ERROR_TYPE);
             put("--min-user-count", Token.Type.FLAG_MIN_USER_COUNT);
@@ -83,13 +85,33 @@ public class MyParser {
         private boolean onlyLoggedUsers;
         private int minimalCorrectionCount;
         private String filePath;
+        private String errorFilePath;
         public Parameters(ErrorTypes errorType, int questionCount, boolean onlyLoggedUsers, int minimalCorrectionCount,
-                String filePath) {
+                String filePath, String errorFilePath) {
             this.errorType = errorType;
             this.questionCount = questionCount;
             this.onlyLoggedUsers = onlyLoggedUsers;
             this.minimalCorrectionCount = minimalCorrectionCount;
             this.filePath = filePath;
+            this.errorFilePath = errorFilePath;
+        }
+        public ErrorTypes getErrorType() {
+            return errorType;
+        }
+        public int getQuestionCount() {
+            return questionCount;
+        }
+        public boolean isOnlyLoggedUsers() {
+            return onlyLoggedUsers;
+        }
+        public int getMinimalCorrectionCount() {
+            return minimalCorrectionCount;
+        }
+        public String getFilePath() {
+            return filePath;
+        }
+        public String getErrorFilePath() {
+            return errorFilePath;
         }
     }
 
@@ -123,14 +145,17 @@ public class MyParser {
             switch (root.type) {
                 case ARGUMENTS: {
                     Node parameters = new Node(Node.Type.PARAMETERS_LIST, null);
-                    while (it.next().type != Token.Type.VALUE) {
+                    while (it.hasNext() && it.next().type != Token.Type.VALUE) {
                         it.previous();
                         parameters = buildSemanticTree(parameters, it);
                     }
                     it.previous();
                     root.children.add(parameters);
-                    Node positional = new Node(Node.Type.POSITIONAL, it.next());
-                    root.children.add(positional);
+                    while (it.hasNext() && it.next().type == Token.Type.VALUE) {
+                        it.previous();
+                        Node positional = new Node(Node.Type.POSITIONAL, it.next());
+                        root.children.add(positional);
+                    }
                     break;
                 }
                 case PARAMETERS_LIST: {
@@ -184,7 +209,9 @@ public class MyParser {
         Boolean noAnon = false;
         Parameters.ErrorTypes errorType = Parameters.ErrorTypes.ANY;
         String filePath = null;
+        String errorFilePath = null;
 
+        int positionalsTreated = 0;
         ArrayList<Token> tokens = getTokens(args);
         ListIterator<Token> it = tokens.listIterator();
         Node tree = buildSemanticTree(null, it);
@@ -228,7 +255,18 @@ public class MyParser {
                     }
                     break;
                 case POSITIONAL:
-                    filePath = node.token.value;
+                    switch (positionalsTreated) {
+                        case 0:
+                            filePath = node.token.value;
+                            positionalsTreated++;
+                            break;
+                        case 1:
+                            errorFilePath = node.token.value;
+                            positionalsTreated++;
+                            break;
+                        default:
+                            throw new Exception("Unexpected positionnal argument: " + node.token.value);
+                    }
                     break;
                 default:
                     break;
@@ -238,11 +276,14 @@ public class MyParser {
         if (filePath == null) {
             throw new Exception("Missing filePath.");
         }
+        if (errorFilePath == null) {
+            throw new Exception("Missing errorFilePath.");
+        }
 
-        return new Parameters(errorType, questionCount, noAnon, minUserCount, filePath);
+        return new Parameters(errorType, questionCount, noAnon, minUserCount, filePath, errorFilePath);
     }
 
-    private static String convertToFileURL(String filename) {
+    protected static String convertToFileURL(String filename) {
         String path = new File(filename).getAbsolutePath();
         if (File.separatorChar != '/') {
             path = path.replace(File.separatorChar, '/');
@@ -269,13 +310,24 @@ public class MyParser {
         System.out.println("questions-count: \""+ parameters.questionCount +"\"");
         System.out.println("no-anon \""+ parameters.onlyLoggedUsers +"\"");
         System.out.println("file-path \""+ parameters.filePath +"\"");
+        System.out.println("error-file-path \""+ parameters.errorFilePath +"\"");
 
         SAXParserFactory spf = SAXParserFactory.newInstance();
         spf.setNamespaceAware(true);
         SAXParser saxParser = spf.newSAXParser();
+
+
+        // Spelling error types parsing
+        XMLReader errorTypeXmlReader = saxParser.getXMLReader();
+        errorTypeXmlReader.setErrorHandler(new MyErrorHandler(System.err));
+        errorTypeXmlReader.setContentHandler(new MyHandlerForErrors());
+        errorTypeXmlReader.parse(convertToFileURL(parameters.errorFilePath));
+        HashMap<Integer, ErrorTypes> errorTypesById = ((MyHandlerForErrors)(errorTypeXmlReader.getContentHandler())).errorTypesById;
+
+        // modifs parsing
         XMLReader xmlReader = saxParser.getXMLReader();
         xmlReader.setErrorHandler(new MyErrorHandler(System.err));
-        xmlReader.setContentHandler(new MyHandler());
+        xmlReader.setContentHandler(new MyHandler(parameters, errorTypesById));
         xmlReader.parse(convertToFileURL(parameters.filePath));
     }
 }

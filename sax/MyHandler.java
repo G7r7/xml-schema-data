@@ -1,47 +1,78 @@
 package sax;
-import javax.xml.parsers.*;
+
 import org.xml.sax.*;
 import org.xml.sax.helpers.*;
 
+import sax.MyParser.Parameters;
+import sax.MyParser.Parameters.ErrorTypes;
+
 import java.util.*;
-import java.io.*;
 
 public class MyHandler extends DefaultHandler {
 
     static final String outputEncoding = "UTF-8";
+    private Parameters parameters;
+    protected ArrayList<Integer> modifsIds;
+    private ArrayList<Integer> ignoredModifsIds;
+    private HashMap<Integer, ErrorTypes> errorTypesById;
 
-    private Hashtable<String, Integer> tags;
+    public MyHandler(Parameters parameters, HashMap<Integer, ErrorTypes> errorTypesById) {
+        this.parameters = parameters;
+        this.errorTypesById = errorTypesById;
+    }
 
     public void startDocument() throws SAXException {
-        tags = new Hashtable<String, Integer>();
+        System.out.println("Starting the parsing of the document");
+        modifsIds = new ArrayList<Integer>();
+        ignoredModifsIds = new ArrayList<Integer>();
     }
 
     public void startElement(String namespaceURI,
-                            String localName,
-                            String qName, 
-                            Attributes atts)
-        throws SAXException {
+            String localName,
+            String qName,
+            Attributes atts)
+            throws SAXException {
 
-        String key = localName;
-        Object value = tags.get(key);
+        if(localName == "modif") {
+            int id = Integer.parseInt(atts.getValue("id"));
+            int userId = Integer.parseInt(atts.getValue("wp_user_id"));
+            int nbModifs = Integer.parseInt(atts.getValue("wp_user_num_modif"));
+            
+            // We ignore excess questions
+            if(parameters.getQuestionCount() != -1) {
+                if(parameters.getQuestionCount() <= modifsIds.size()) {
+                    ignoredModifsIds.add(id);
+                    return;
+                }
+            }   
+            // We ignore non-logged user
+            if(parameters.isOnlyLoggedUsers() && userId == 0) {
+                ignoredModifsIds.add(id);
+                return;
+            }
+            // We ignore when not enough modifications from user
+            if(parameters.getMinimalCorrectionCount() != -1) {
+                if(parameters.getMinimalCorrectionCount() > nbModifs) {
+                    ignoredModifsIds.add(id);
+                    return; 
+                }
+            }
+            ErrorTypes lol = errorTypesById.get(id);
 
-        if (value == null) {
-            tags.put(key, 1);
-        } 
-        else {
-            int count = ((Integer)value).intValue();
-            count++;
-            tags.put(key, count);
+            // We ignore error of the wrong type
+            if(parameters.getErrorType() != ErrorTypes.ANY && parameters.getErrorType() != errorTypesById.get(id)) {
+                ignoredModifsIds.add(id);
+                return; 
+            }
+
+            modifsIds.add(id);
         }
     }
 
     public void endDocument() throws SAXException {
-        Enumeration e = tags.keys();
-        while (e.hasMoreElements()) {
-            String tag = (String)e.nextElement();
-            int count = ((Integer)tags.get(tag)).intValue();
-            System.out.println("Local Name \"" + tag + "\" occurs " 
-                               + count + " times");
-        }    
+        System.out.println("End of the parsing of the document");
+        System.out.println(modifsIds.size() + ignoredModifsIds.size() + " modifs found.");
+        System.out.println(modifsIds.size() + " modifs kept.");
+        System.out.println(ignoredModifsIds.size() + " modifs ignored.");
     }
 }
