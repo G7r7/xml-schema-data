@@ -57,7 +57,6 @@ public class MyHandler extends DefaultHandler {
                     return; 
                 }
             }
-            ErrorTypes lol = errorTypesById.get(id);
 
             // We ignore error of the wrong type
             if(parameters.getErrorType() != ErrorTypes.ANY && parameters.getErrorType() != errorTypesById.get(id)) {
